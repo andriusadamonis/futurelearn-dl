@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
 import sys, os, errno
 import requests
 import json
+import codecs
 
 '''
     Author: Michael Bright, @mjbright
@@ -19,7 +21,8 @@ import json
 
 '''
 
-SIGNIN_URL = 'https://www.futurelearn.com/sign-in'
+TOP_URL = 'https://www.futurelearn.com'
+SIGNIN_URL = TOP_URL + '/sign-in'
 
 PAUSE   = os.getenv('FL_PAUSE', default=False)
 DEBUG   = os.getenv('FL_DEBUG', default=False)
@@ -40,7 +43,6 @@ WEEK_NUM = -1 # Select all weeks unless specified on command-line
 DOWNLOAD_TYPES = [ 'html', 'pdf', 'mp4', 'mp3' ]
 for d in range(len(DOWNLOAD_TYPES)):
     DOWNLOAD_TYPES[d] = DOWNLOAD_TYPES[d].lower()
-    
 
 headers = {
     'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/29.0.1547.62 Safari/537.36',
@@ -51,17 +53,17 @@ headers = {
 
 def fatal(msg):
     ''' die brutally '''
-    print("FATAL:" + msg)
+    print(("FATAL:" + str(msg)).encode('utf-8'))
     sys.exit(1)
 
 def debug(verbosity_level, msg):
     if verbosity_level == 1:
         #print("DEBUG: " + msg)
-        print(msg)
+        print(str(msg).encode('utf-8'))
         return
 
     if VERBOSE >= verbosity_level and DEBUG:
-        print("DEBUG: " + msg)
+        print(("DEBUG: " + str(msg)).encode('utf-8'))
 
 def mkdir_p(path):
     '''
@@ -119,7 +121,7 @@ def writeBinaryFile(file, content):
 
 def writeFile(file, content):
     ''' Write content to the specified file '''
-    f = open(file, 'w')
+    f = codecs.open(file, 'w', 'utf-8')
     try:
         f.write(content)
     except UnicodeEncodeError as exc:
@@ -279,12 +281,12 @@ def downloadURLsInPage(course_id, week_id, step_id, week_num, content, DOWNLOAD_
         MEDIA_MATCH='audio/mpeg'
 
     # If there's no mention of such media in the whole file, leave now:
-    if not MEDIA_MATCH in content.lower():
-        return urls
-        #fatal("SHOULD MATCH")
+    #aa if not MEDIA_MATCH in content.lower():
+    #aa    return urls
+    #aa    #fatal("SHOULD MATCH")
 
     pos = content.lower().find(DOWNLOAD_TYPE)
-    debug(2, "Searching for {} in <<{}...>>".format(DOWNLOAD_TYPE, content[pos-20:pos+20]))
+    debug(2, "Searching for {} in <<{}...>>".format(DOWNLOAD_TYPE, content[pos-20:pos+20].replace("\n","")))
 
     # MP4:
     # <video poster="//view.vzaar.com/2088550/image" width="auto" height="auto" id="video-2088550" class="video-js vjs-futurelearn-skin" controls="controls" preload="none" data-hd-src="//view.vzaar.com/2088550/video/hd" data-sd-src="//view.vzaar.com/2088550/video"><source src="//view.vzaar.com/2088550/video" type="video/mp4" />
@@ -305,7 +307,7 @@ def downloadURLsInPage(course_id, week_id, step_id, week_num, content, DOWNLOAD_
 
         # In video case, we also need to advance to the '<source src="XX"' tag
         if DOWNLOAD_TYPE == 'mp4':
-            debug(4, "video in <<{}...>>".format(content[pos:pos+400]))
+            debug(4, "video in <<{}...>>".format(content[pos:pos+400].replace("\n","")))
             pos += len(POS_MATCH)
 
             SRC_MATCH='<source src='
@@ -317,9 +319,9 @@ def downloadURLsInPage(course_id, week_id, step_id, week_num, content, DOWNLOAD_
 
             pos += mpos
             pos += len(SRC_MATCH)
-            debug(4, "source src ==> <<{}...>>".format(content[pos:pos+400]))
+            debug(4, "source src ==> <<{}...>>".format(content[pos:pos+400].replace("\n","")))
         elif DOWNLOAD_TYPE == 'mp3':
-            debug(4, "audio in <<{}...>>".format(content[pos:pos+400]))
+            debug(4, "audio in <<{}...>>".format(content[pos:pos+400].replace("\n","")))
             pos += len(POS_MATCH)
 
             SRC_MATCH='<source src='
@@ -331,10 +333,10 @@ def downloadURLsInPage(course_id, week_id, step_id, week_num, content, DOWNLOAD_
 
             pos += mpos
             pos += len(SRC_MATCH)
-            debug(4, "source src ==> <<{}...>>".format(content[pos:pos+400]))
+            debug(4, "source src ==> <<{}...>>".format(content[pos:pos+400].replace("\n","")))
             #pause("mp3 found")
         else:
-            debug(4, "HREF ==> <<{}...>>".format(content[pos:pos+400]))
+            debug(4, "HREF ==> <<{}...>>".format(content[pos:pos+400].replace("\n","")))
             pos += len(POS_MATCH)
 
         quote = content[pos]
@@ -380,45 +382,65 @@ def downloadURLsInPage(course_id, week_id, step_id, week_num, content, DOWNLOAD_
             downloadURLInPage(url, download_dir, DOWNLOAD_TYPE, page_title)
         else:
             # With other types, check that the url ends with the type e.g. ".pdf"
-            if lurl[-(1+len(DOWNLOAD_TYPE)):] == "." + DOWNLOAD_TYPE:
+            if (lurl[-(1+len(DOWNLOAD_TYPE)):] == "." + DOWNLOAD_TYPE) or (url[:1] == '/'):
                 debug(4, "MATCHING URL=<<{}>>".format(url))
                 urls.append( url )
                 downloadURLInPage(url, download_dir, DOWNLOAD_TYPE, page_title)
 
     return urls
 
-def downloadURLToFile(url, file, DOWNLOAD_TYPE):
-    if not(OVERWRITE_NONEMPTY_FILES) and os.path.exists(file):
-        statinfo = os.stat(file)
+def downloadURLToFile(url, file_prefix, file, DOWNLOAD_TYPE):
+    if not(OVERWRITE_NONEMPTY_FILES) and os.path.exists(file_prefix + file):
+        statinfo = os.stat(file_prefix + file)
         if statinfo.st_size != 0:
-            debug(2, "Skipping non-zero size file <{}> of {} bytes".format(file, statinfo.st_size))
+            debug(2, "Skipping non-zero size file <{}> of {} bytes".format(file_prefix + file, statinfo.st_size))
             return
 
-    tmpfile=file
-    if OP_DIR in file:
-        tmpfile=file[len(OP_DIR)+1:]
+    tmpfile=file_prefix + file
+    if OP_DIR in (file_prefix + file):
+        tmpfile=(file_prefix + file)[len(OP_DIR)+1:]
     
-    debug(1, "Downloading url<{}>\n\tto file <{}> ...".format(url, tmpfile))
+    debug(1, "Downloading url <{}> to file <{}> ...".format(url, tmpfile))
 
     # No user-agent: had some failures in this case when specifying user-agent ...
     headers = {}
-    response = session.get(url, headers=headers)
+    try:
+      response = session.get(url, headers=headers)
+    except requests.exceptions.ConnectionError as e:
+      print("downloadURLToFile: Failed to download url <{}> => {}".format(url, str(e)))
+      return
+
     if response.status_code != 200:
         print("downloadURLToFile: Failed to download url <{}> => {}".format(url, response.status_code))
         return
+    else:
+        print("\t=> {}".format(response.url))
+        if not response.history is None:
+            # rename file
+            file = response.url[ response.url.rfind('/') + 1: ]
+            if len(file) == 0:
+                i = -1
+                while response.url[:i] == '/':
+                    i -= 1
+                file = response.url[ response.url[:i].rfind('/') + 1:i ]
+            if (file[-(1+len(DOWNLOAD_TYPE)):] != "." + DOWNLOAD_TYPE):
+                file = file + "." + DOWNLOAD_TYPE
 
     #showResponse(response)
     debug(1, "type={}, content.len={}".format(DOWNLOAD_TYPE, len(response.content)))
     if "The request signature we calculated" in response.content.decode('utf8', 'ignore'):
-        print("Skipping bad content for file <{}> - may not be available yet".format(file))
+        print("Skipping bad content for file <{}> - may not be available yet".format(file_prefix + file))
         return
-        
-    debug(2, "Writing content to <{}>".format(file))
-    writeBinaryFile(file, response.content)
+
+    debug(2, "Writing content to <{}>".format(file_prefix + file))
+    writeBinaryFile(file_prefix + file, response.content)
     #fatal("STOP")
 
 def downloadURLInPage(url, download_dir, DOWNLOAD_TYPE, page_title):
     if not DOWNLOAD:
+        return
+
+    if url[:1] == '#':
         return
 
     mkdir_p(download_dir)
@@ -436,8 +458,9 @@ def downloadURLInPage(url, download_dir, DOWNLOAD_TYPE, page_title):
         # Get the filename from the url after the last slash (where the number is):
         filename = filename +  '_' + urlUptoNumber[ urlUptoNumber.rfind('/') + 1: ] + "." + DOWNLOAD_TYPE
 
-        ofile= download_dir + '/' + filename
-        downloadURLToFile(url, ofile, DOWNLOAD_TYPE)
+        ofile_prefix = download_dir + '/' + filename
+        ofile = ''
+        downloadURLToFile(url, ofile_prefix, ofile, DOWNLOAD_TYPE)
     else:
         # Get the filename from the url after the last slash (where the source filename is):
         filename = filename +  '_' + url[ url.rfind('/') + 1: ]
@@ -445,11 +468,18 @@ def downloadURLInPage(url, download_dir, DOWNLOAD_TYPE, page_title):
         # Replace any '%20' chars by underscore(_)
         filename = filename.replace('%20', '_')
 
-        if '%' in filename:
-            fatal("downloadURLInPage: Unhandled escape sequence in filename <{}>".format(filename))
+        #aa this is not fatal
+        #aa if '%' in filename:
+        #aa    fatal("downloadURLInPage: Unhandled escape sequence in filename <{}>".format(filename))
+        if len(filename) > 100:
+          filename = filename[:100]
 
-        ofile= download_dir + '/' + filename
-        downloadURLToFile(url, ofile, DOWNLOAD_TYPE)
+        if url[:1] == '/':
+            url = TOP_URL + url
+          
+        ofile_prefix = download_dir + '/'
+        ofile = filename
+        downloadURLToFile(url, ofile_prefix, ofile, DOWNLOAD_TYPE)
 
 
 def getCourseWeekPage(course_id, week_id):
@@ -493,13 +523,13 @@ def getCourseWeekPage(course_id, week_id):
         else:
             debug(4, "----------------------")
             section_pos = pos + section_pos
-            debug(4, "section_pos[200]=" + current[section_pos:section_pos+200])
+            debug(4, "section_pos[200]=" + current[section_pos:section_pos+200].replace("\n",""))
 
             section_pos = section_pos + len(SECTION_MATCH)
-            debug(4, "section_pos[200]=" + current[section_pos:section_pos+200])
+            debug(4, "section_pos[200]=" + current[section_pos:section_pos+200].replace("\n",""))
 
             section_pos = 1 + section_pos + current[section_pos:].find('>')
-            debug(4, "section_pos[200]=" + current[section_pos:section_pos+200])
+            debug(4, "section_pos[200]=" + current[section_pos:section_pos+200].replace("\n",""))
 
             end_section_pos = section_pos + current[section_pos:].find('<')
             link_section=current[section_pos:end_section_pos] + "-"
@@ -582,7 +612,7 @@ def getCoursePage(course_id):
 ## -- Main: --------------------------------------------------------
 
 TMP_DIR = os.getenv('TMP_DIR', default='/tmp/FUTURELEARN_DL')
-OP_DIR  = os.getenv('OP_DIR',  default=os.getenv('HOME') + '/Education/FUTURELEARN')
+OP_DIR  = os.getenv('OP_DIR',  default='' + os.getenv('HOME') + '/Education/FUTURELEARN')
 
 debug(2, "Using temp   dir <{}>".format(TMP_DIR))
 debug(2, "Using Output dir <{}>".format(OP_DIR))
@@ -643,6 +673,5 @@ sys.exit(0)
 
 # RESPONSE methods:
 #['__attrs__', '__bool__', '__class__', '__delattr__', '__dict__', '__dir__', '__doc__', '__eq__', '__format__', '__ge__', '__getattribute__', '__getstate__', '__gt__', '__hash__', '__init__', '__iter__', '__le__', '__lt__', '__module__', '__ne__', '__new__', '__nonzero__', '__reduce__', '__reduce_ex__', '__repr__', '__setattr__', '__setstate__', '__sizeof__', '__str__', '__subclasshook__', '__weakref__', '_content', '_content_consumed', 'apparent_encoding', 'close', 'connection', 'content', 'cookies', 'elapsed', 'encoding', 'headers', 'history', 'is_permanent_redirect', 'is_redirect', 'iter_content', 'iter_lines', 'json', 'links', 'ok', 'raise_for_status', 'raw', 'reason', 'request', 'status_code', 'text', 'url']
-
 
 
